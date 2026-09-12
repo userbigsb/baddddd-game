@@ -277,17 +277,13 @@
         import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
         // ================================================================
-        //  性能优化: 全局临时对象池 (避免 GC 压力)
+        //  性能优化: 全局临时对象池
         // ================================================================
         const _tmpV1 = new THREE.Vector3();
         const _tmpV2 = new THREE.Vector3();
         const _tmpV3 = new THREE.Vector3();
         const _tmpV4 = new THREE.Vector3();
-        const _tmpRay = new THREE.Ray();
-        const _tmpBox = new THREE.Box3();
-        const _tmpVec2 = new THREE.Vector2();
 
-        // 共享几何体 & 材质 (减少 draw call 和内存)
         const SHARED_BULLET_GEO = new THREE.SphereGeometry(0.09, 6, 6);
         const SHARED_SNIPER_BULLET_GEO = new THREE.SphereGeometry(0.12, 6, 6);
         const SHARED_BULLET_MAT = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
@@ -296,15 +292,10 @@
         const SHARED_BOMB_MAT = new THREE.MeshBasicMaterial({ color: 0x222222 });
         const SHARED_EXPLOSION_GEO = new THREE.SphereGeometry(1, 5, 5);
         const SHARED_PARTICLE_MAT_POOL = [];
-
-        // 复用爆炸粒子材质 (按色相分几组)
         for (let i = 0; i < 3; i++) {
             const colors = [0xff6600, 0xffcc00, 0xff3300];
             const mat = new THREE.MeshBasicMaterial({
-                color: colors[i],
-                transparent: true,
-                opacity: 1,
-                blending: THREE.AdditiveBlending,
+                color: colors[i], transparent: true, opacity: 1, blending: THREE.AdditiveBlending,
             });
             SHARED_PARTICLE_MAT_POOL.push(mat);
         }
@@ -356,7 +347,7 @@
         const perfMonitor = document.getElementById('perf-monitor');
 
         // ================================================================
-        //  HUD 更新节流 (只在值变化时更新 DOM)
+        //  HUD 更新节流
         // ================================================================
         const _hudCache = {
             score: -1, hp: -1, hpPercent: -1, hpColor: '',
@@ -369,12 +360,10 @@
             const local = players[localPeerId];
             if (!local) return;
 
-            // 分数
             if (_hudCache.score !== local.score) {
                 _hudCache.score = local.score;
                 hudScore.textContent = local.score;
             }
-            // 血量
             const hpInt = Math.floor(local.hp);
             if (_hudCache.hp !== hpInt) {
                 _hudCache.hp = hpInt;
@@ -393,7 +382,6 @@
                 hpBarFill.style.background = hpColor;
             }
 
-            // 弹药
             if (GameState.currentSlot === 3) {
                 const remain = Math.max(0, GameState.bombCooldownEnd - performance.now());
                 const sec = Math.ceil(remain / 1000);
@@ -458,9 +446,9 @@
         const ROOF_HEIGHT = 3.4;
         const HOLE_HALF = 1.25;
         const MOBILE_LOOK_SENS = 0.005;
-        const SYNC_INTERVAL = 4; // 网络同步间隔 (帧)
-        const LABEL_CHECK_INTERVAL = 6; // 标签遮挡检测间隔 (帧)
-        const WALK_ANIM_DISTANCE = 35; // 超出此距离不做走路动画
+        const SYNC_INTERVAL = 4;
+        const LABEL_CHECK_INTERVAL = 6;
+        const WALK_ANIM_DISTANCE = 35;
 
         const GameState = {
             username: '', roomCode: '', isHost: false,
@@ -619,16 +607,13 @@
             antialias: !(/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)),
             powerPreference: 'high-performance',
             stencil: false,
-            depth: true,
         });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        // 优化: 移动端降低分辨率
         const isMobileDevice = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
         const pixelRatioCap = isMobileDevice ? 1.2 : 1.5;
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatioCap));
         renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFShadowMap; // 比 PCFSoft 便宜
-        renderer.shadowMap.autoUpdate = true;
+        renderer.shadowMap.type = THREE.PCFShadowMap;
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
         renderer.toneMappingExposure = 1.2;
         document.body.prepend(renderer.domElement);
@@ -646,7 +631,6 @@
         const dirLight = new THREE.DirectionalLight(0xffeedd, 1.5);
         dirLight.position.set(30, 50, 20);
         dirLight.castShadow = true;
-        // 优化: 降低阴影贴图分辨率 (1024 对大多数场景够用)
         dirLight.shadow.mapSize.width = 1024;
         dirLight.shadow.mapSize.height = 1024;
         dirLight.shadow.camera.near = 1;
@@ -658,12 +642,10 @@
         scene.add(dirLight);
         const fillLight = new THREE.DirectionalLight(0x6688ff, 0.35);
         fillLight.position.set(-30, 20, -30); scene.add(fillLight);
-        // 优化: 移除 rimLight 减少光照计算
 
         const groundMat = new THREE.MeshStandardMaterial({ color: 0x1a1a3e, roughness: 0.8, metalness: 0.05 });
         const ground = new THREE.Mesh(new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE), groundMat);
         ground.rotation.x = -Math.PI / 2; ground.position.y = -0.01; ground.receiveShadow = true; scene.add(ground);
-        // 优化: 网格简化
         const grid = new THREE.GridHelper(MAP_SIZE, 25, 0x4a4a8a, 0x2a2a5a);
         grid.position.y = 0; scene.add(grid);
 
@@ -677,16 +659,15 @@
         scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), borderMat));
 
         // ================================================================
-        //  房屋系统 (优化: 共享几何体 & 合并墙体)
+        //  房屋系统
         // ================================================================
         const houses = [];
-        const allWallBoxes = []; // 扁平 AABB 数据 { minX, maxX, minY, maxY, minZ, maxZ }
+        const allWallBoxes = [];
         const playerWallBoxes = [];
         let houseLayoutData = null;
         let hasHousesData = false;
 
-        // 共享房屋几何体
-        const WALL_GEO = new THREE.BoxGeometry(1, 1, 1); // 用 scale 调整
+        const WALL_GEO = new THREE.BoxGeometry(1, 1, 1);
         const HOUSE_MAT = new THREE.MeshStandardMaterial({ color: 0x2a2a5a, roughness: 0.85, metalness: 0.05 });
         const ROOF_MAT = new THREE.MeshStandardMaterial({ color: 0x1a1a4a, roughness: 0.9 });
         const LADDER_MAT = new THREE.MeshStandardMaterial({ color: 0x8B7355, roughness: 0.85 });
@@ -696,12 +677,11 @@
         function pushBox(mesh) {
             mesh.updateMatrixWorld(true);
             const box = new THREE.Box3().setFromObject(mesh);
-            const data = {
+            return {
                 minX: box.min.x, maxX: box.max.x,
                 minY: box.min.y, maxY: box.max.y,
                 minZ: box.min.z, maxZ: box.max.z,
             };
-            return data;
         }
 
         function createLadder(cx, cz, height) {
@@ -780,7 +760,6 @@
             addWall(sw, wallH, wallT, cx - halfS + sw / 2, wallH / 2, cz + halfS);
             addWall(sw, wallH, wallT, cx + halfS - sw / 2, wallH / 2, cz + halfS);
 
-            // 屋顶 (开洞)
             const roofThickness = 0.3;
             const roofY = wallH + 0.15;
             const roofTotal = size + 0.6;
@@ -838,7 +817,6 @@
             playerWallBoxes.length = 0;
         }
 
-        // 优化: 用扁平 AABB 加速射线检测
         function bulletHitsWall(prevPos, newPos) {
             const dx = newPos.x - prevPos.x;
             const dy = newPos.y - prevPos.y;
@@ -846,49 +824,40 @@
             const lenSq = dx * dx + dy * dy + dz * dz;
             if (lenSq < 1e-8) return false;
             const len = Math.sqrt(lenSq);
-            const invLen = 1 / len;
 
-            // 用 slab 方法判断射线与每个 AABB 相交
             for (let i = 0; i < allWallBoxes.length; i++) {
                 const b = allWallBoxes[i];
                 let tmin = 0, tmax = len;
-                // X 轴
                 if (Math.abs(dx) < 1e-8) {
                     if (prevPos.x < b.minX || prevPos.x > b.maxX) continue;
                 } else {
                     const t1 = (b.minX - prevPos.x) / dx;
                     const t2 = (b.maxX - prevPos.x) / dx;
-                    const tNear = Math.min(t1, t2);
-                    const tFar = Math.max(t1, t2);
+                    const tNear = Math.min(t1, t2), tFar = Math.max(t1, t2);
                     if (tNear > tmin) tmin = tNear;
                     if (tFar < tmax) tmax = tFar;
                     if (tmin > tmax) continue;
                 }
-                // Y 轴
                 if (Math.abs(dy) < 1e-8) {
                     if (prevPos.y < b.minY || prevPos.y > b.maxY) continue;
                 } else {
                     const t1 = (b.minY - prevPos.y) / dy;
                     const t2 = (b.maxY - prevPos.y) / dy;
-                    const tNear = Math.min(t1, t2);
-                    const tFar = Math.max(t1, t2);
+                    const tNear = Math.min(t1, t2), tFar = Math.max(t1, t2);
                     if (tNear > tmin) tmin = tNear;
                     if (tFar < tmax) tmax = tFar;
                     if (tmin > tmax) continue;
                 }
-                // Z 轴
                 if (Math.abs(dz) < 1e-8) {
                     if (prevPos.z < b.minZ || prevPos.z > b.maxZ) continue;
                 } else {
                     const t1 = (b.minZ - prevPos.z) / dz;
                     const t2 = (b.maxZ - prevPos.z) / dz;
-                    const tNear = Math.min(t1, t2);
-                    const tFar = Math.max(t1, t2);
+                    const tNear = Math.min(t1, t2), tFar = Math.max(t1, t2);
                     if (tNear > tmin) tmin = tNear;
                     if (tFar < tmax) tmax = tFar;
                     if (tmin > tmax) continue;
                 }
-                // 命中
                 if (tmin >= 0 && tmin <= len) return true;
             }
             return false;
@@ -899,11 +868,9 @@
                 let collided = false;
                 for (let i = 0; i < playerWallBoxes.length; i++) {
                     const b = playerWallBoxes[i];
-                    // AABB 与玩家 AABB 检测
                     if (pos.x + radius < b.minX || pos.x - radius > b.maxX) continue;
                     if (pos.z + radius < b.minZ || pos.z - radius > b.maxZ) continue;
                     if (pos.y + playerHeight < b.minY || pos.y > b.maxY) continue;
-                    // 计算最小推力
                     const overlapX = Math.min(pos.x + radius, b.maxX) - Math.max(pos.x - radius, b.minX);
                     const overlapZ = Math.min(pos.z + radius, b.maxZ) - Math.max(pos.z - radius, b.minZ);
                     if (overlapX < overlapZ) {
@@ -954,7 +921,6 @@
             return sprite;
         }
 
-        // 共享 FPS 武器材质
         const FPS_BODY_MAT = new THREE.MeshStandardMaterial({ color: 0x8899aa, roughness: 0.4, metalness: 0.7 });
         const FPS_BARREL_MAT = new THREE.MeshStandardMaterial({ color: 0x667788, roughness: 0.3, metalness: 0.8 });
         const FPS_GRIP_MAT = new THREE.MeshStandardMaterial({ color: 0x3a3a4a, roughness: 0.8 });
@@ -1039,7 +1005,6 @@
             return fpsBomb;
         }
 
-        // 模型武器 (共享)
         const MODEL_PISTOL_GEO = new THREE.BoxGeometry(0.08, 0.12, 0.45);
         const MODEL_PISTOL_BARREL_GEO = new THREE.CylinderGeometry(0.03, 0.035, 0.35, 6);
         const MODEL_PISTOL_MAT = new THREE.MeshStandardMaterial({ color: 0x8899aa, roughness: 0.4, metalness: 0.7 });
@@ -1079,9 +1044,7 @@
             return g;
         }
 
-        // ================================================================
-        //  玩家模型
-        // ================================================================
+        // 玩家模型
         const PLAYER_BODY_GEO = new THREE.CylinderGeometry(0.3, 0.3, 0.6, 12);
         const PLAYER_LEG_GEO = new THREE.CylinderGeometry(0.1, 0.1, 0.65, 6);
         const PLAYER_ARM_GEO = new THREE.CylinderGeometry(0.07, 0.07, 0.5, 6);
@@ -1148,7 +1111,6 @@
             const smile = new THREE.Mesh(PLAYER_SMILE_GEO, PLAYER_SMILE_MAT);
             smile.position.set(0, -0.08, 0.26); smile.rotation.z = Math.PI; head.add(smile);
 
-            // 死亡X眼
             const xEyesGroup = new THREE.Group(); head.add(xEyesGroup); xEyesGroup.visible = false;
             const xBarGeo = new THREE.BoxGeometry(0.12, 0.024, 0.024);
             [-0.1, 0.1].forEach(xOff => {
@@ -1161,7 +1123,6 @@
             const invulnSphere = new THREE.Mesh(PLAYER_INVULN_GEO, PLAYER_INVULN_MAT.clone());
             invulnSphere.position.y = 0.95; invulnSphere.visible = false; group.add(invulnSphere);
 
-            // 标签 (第一人称隐藏)
             const labelDiv = document.createElement('div');
             labelDiv.textContent = username;
             labelDiv.style.cssText = 'color:white;font-size:13px;font-weight:600;text-shadow:1px 1px 3px rgba(0,0,0,0.8);background:rgba(0,0,0,0.55);padding:2px 9px;border-radius:20px;pointer-events:none;';
@@ -1205,10 +1166,8 @@
             }
         }
 
-        // 优化: 走路动画距离裁剪
         function updateWalkAnimation(playerObj, isMoving, delta, isSprinting) {
             if (!playerObj || !playerObj.meshData || playerObj.isDead) return;
-            // 距离裁剪: 距离本地玩家太远的跳过
             if (playerObj !== players[localPeerId]) {
                 const dx = playerObj.position.x - camera.position.x;
                 const dz = playerObj.position.z - camera.position.z;
@@ -1236,7 +1195,6 @@
             const now = performance.now();
             for (const pid in players) {
                 const p = players[pid];
-                // 优化: 只有存在无敌状态的才更新
                 if ((p.invulnerableUntil || 0) < now) {
                     if (p.meshData && p.meshData.invulnSphere && p.meshData.invulnSphere.visible) {
                         p.meshData.invulnSphere.visible = false;
@@ -1254,7 +1212,6 @@
             }
         }
 
-        // 优化: 节流标签遮挡检测
         function isLabelOccluded(labelWorldPos, camPos) {
             const dx = labelWorldPos.x - camPos.x;
             const dy = labelWorldPos.y - camPos.y;
@@ -1303,7 +1260,6 @@
             return false;
         }
 
-        // 子弹
         const bullets = [];
 
         function segmentIntersectsSphere(p1, p2, center, radius) {
@@ -1327,7 +1283,6 @@
             const mesh = new THREE.Mesh(geo, mat);
             mesh.position.copy(origin);
             scene.add(mesh);
-            // 优化: 移除 PointLight, 用发光贴图代替 (Sprite 代替光源更省性能)
             const glowSprite = new THREE.Sprite(new THREE.SpriteMaterial({
                 color: isSniper ? 0x88ddff : 0xffaa44,
                 transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false,
@@ -1338,11 +1293,9 @@
 
             bullets.push({
                 mesh, glowSprite,
-                velocity: direction.clone().multiplyScalar(speed),
                 ownerId, life: 200,
                 prevPos: origin.clone(),
                 damage, isSniper,
-                // 复用速度向量避免每帧 new
                 _vx: direction.x * speed,
                 _vy: direction.y * speed,
                 _vz: direction.z * speed,
@@ -1410,7 +1363,6 @@
             }
         }
 
-        // 炸弹
         const bombs = [];
 
         function createBombMesh() {
@@ -1513,10 +1465,9 @@
             }
         }
 
-        // 优化: 爆炸粒子用共享材质和几何体
         const explosions = [];
         function emitExplosionParticles(position) {
-            const count = 40; // 从 70 降到 40
+            const count = 40;
             for (let i = 0; i < count; i++) {
                 const dir = _tmpV1.set(Math.random() - 0.5, Math.random() * 0.9, Math.random() - 0.5).normalize();
                 const speed = 6 + Math.random() * 12;
@@ -1553,41 +1504,129 @@
             }
         }
 
-        // 网络
+        // ================================================================
+        //  网络 (修复版)
+        // ================================================================
         let peer = null, conn = null, isHost = false, roomCode = '', localPeerId = '';
+        let joinTimeout = null;
         const players = {};
 
-        function setStatus(msg, isError = false) { statusMsg.textContent = msg; statusMsg.className = 'status-msg' + (isError ? ' error-msg' : ''); }
+        // ⭐ 关键修复：STUN 服务器配置
+        const PEER_CONFIG = {
+            debug: 0,
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:stun4.l.google.com:19302' },
+                    { urls: 'stun:stun.services.mozilla.com' },
+                    { urls: 'stun:global.stun.twilio.com:3478' },
+                ],
+                iceCandidatePoolSize: 10,
+                bundlePolicy: 'max-bundle',
+                rtcpMuxPolicy: 'require',
+            },
+            pingInterval: 5000,
+        };
+
+        function clearJoinTimeout() {
+            if (joinTimeout) { clearTimeout(joinTimeout); joinTimeout = null; }
+        }
+
+        function cleanupPeer() {
+            if (conn) { try { conn.close(); } catch (e) {} conn = null; }
+            if (peer) { try { peer.destroy(); } catch (e) {} peer = null; }
+            clearJoinTimeout();
+        }
+
+        function setStatus(msg, isError = false) {
+            statusMsg.textContent = msg;
+            statusMsg.className = 'status-msg' + (isError ? ' error-msg' : '');
+        }
         function generateRoomCode() { return String(1000 + Math.floor(Math.random() * 9000)); }
 
         createBtn.addEventListener('click', async () => {
             const username = usernameInput.value.trim() || '玩家';
             if (username.length < 2) { setStatus('名字至少2个字符', true); return; }
+
+            cleanupPeer();
+
             const code = generateRoomCode();
             roomCode = code; GameState.username = username; GameState.roomCode = code;
-            GameState.isHost = true; isHost = true; setStatus('正在创建房间...');
+            GameState.isHost = true; isHost = true;
+            setStatus('正在创建房间...');
+
             try {
-                peer = new Peer(code, { debug: 0 });
+                peer = new Peer(code, PEER_CONFIG);
+
+                const createTimeout = setTimeout(() => {
+                    if (!peer || !peer.open) {
+                        setStatus('连接信令服务器超时，请检查网络', true);
+                        createBtn.disabled = false;
+                        joinBtn.disabled = false;
+                        cleanupPeer();
+                    }
+                }, 10000);
+
                 peer.on('open', (id) => {
+                    clearTimeout(createTimeout);
                     localPeerId = id;
                     houseLayoutData = generateHouseLayout();
                     buildHousesFromData(houseLayoutData);
                     hasHousesData = true;
-                    setStatus(`房间已创建 (房间码: ${code})`);
+                    setStatus(`房间已创建 (房间码: ${code})，等待玩家加入...`);
                     roomCodeDisplay.textContent = code;
                     roomCodeDisplay.style.display = 'block';
+
                     peer.on('connection', (incomingConn) => {
-                        if (conn && conn.open) { incomingConn.close(); return; }
-                        conn = incomingConn; setupConnection(conn, false);
+                        if (conn && conn.open) {
+                            incomingConn.close();
+                            return;
+                        }
+                        conn = incomingConn;
+                        setupConnection(conn, false);
                     });
-                    createBtn.disabled = true; joinBtn.disabled = true;
+
+                    createBtn.disabled = true;
+                    joinBtn.disabled = true;
                     createBtn.textContent = '⏳ 等待对手...';
                     addLocalPlayer(username);
                     enterGame();
-                    addSystemMessage(`房间 ${code} 已创建`);
+                    addSystemMessage(`房间 ${code} 已创建，等待玩家加入...`);
                 });
-                peer.on('error', (err) => setStatus('创建失败: ' + err.message, true));
-            } catch (e) { setStatus('创建失败: ' + e.message, true); }
+
+                peer.on('error', (err) => {
+                    clearTimeout(createTimeout);
+                    console.error('Peer 错误:', err);
+
+                    if (err.type === 'unavailable-id') {
+                        setStatus('房间码冲突，请再点一次创建', true);
+                    } else if (err.type === 'network' || err.type === 'server-error') {
+                        setStatus('信令服务器连接失败，请检查网络或稍后重试', true);
+                    } else if (err.type === 'browser-incompatible') {
+                        setStatus('浏览器不支持 WebRTC，请用 Chrome/Safari', true);
+                    } else {
+                        setStatus('创建失败: ' + err.message, true);
+                    }
+
+                    createBtn.disabled = false;
+                    joinBtn.disabled = false;
+                    createBtn.textContent = '🚀 创建房间';
+                    cleanupPeer();
+                });
+
+                peer.on('disconnected', () => {
+                    if (!peer.destroyed) {
+                        try { peer.reconnect(); } catch (e) {}
+                    }
+                });
+
+            } catch (e) {
+                setStatus('创建失败: ' + e.message, true);
+                cleanupPeer();
+            }
         });
 
         joinBtn.addEventListener('click', async () => {
@@ -1595,18 +1634,83 @@
             if (username.length < 2) { setStatus('名字至少2个字符', true); return; }
             const code = roomCodeInput.value.trim();
             if (!/^\d{4}$/.test(code)) { setStatus('请输入4位数字房间码', true); return; }
-            roomCode = code; GameState.username = username; GameState.roomCode = code;
-            GameState.isHost = false; isHost = false; setStatus('正在加入房间...');
+
+            cleanupPeer();
+
+            roomCode = code;
+            GameState.username = username;
+            GameState.roomCode = code;
+            GameState.isHost = false;
+            isHost = false;
+
+            setStatus('正在连接房间...');
+            joinBtn.disabled = true;
+            createBtn.disabled = true;
+
+            const myId = 'player_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+
             try {
-                peer = new Peer('p_' + Date.now(), { debug: 0 });
+                peer = new Peer(myId, PEER_CONFIG);
+
+                joinTimeout = setTimeout(() => {
+                    if (!conn || !conn.open) {
+                        setStatus('连接超时。房主可能已离线或房间码错误', true);
+                        joinBtn.disabled = false;
+                        createBtn.disabled = false;
+                        cleanupPeer();
+                    }
+                }, 15000);
+
                 peer.on('open', (id) => {
                     localPeerId = id;
-                    setStatus('连接中...');
-                    conn = peer.connect(code, { reliable: true });
+                    setStatus('正在建立 P2P 连接...');
+
+                    conn = peer.connect(code, {
+                        reliable: true,
+                        metadata: { username: GameState.username },
+                    });
+
+                    conn.on('error', (err) => {
+                        console.error('连接错误:', err);
+                        clearJoinTimeout();
+                        setStatus('连接失败：房主可能已离线', true);
+                        joinBtn.disabled = false;
+                        createBtn.disabled = false;
+                    });
+
                     setupConnection(conn, true);
                 });
-                peer.on('error', (err) => setStatus('加入失败: ' + err.message, true));
-            } catch (e) { setStatus('加入失败: ' + e.message, true); }
+
+                peer.on('error', (err) => {
+                    clearJoinTimeout();
+                    console.error('Peer 错误:', err);
+                    joinBtn.disabled = false;
+                    createBtn.disabled = false;
+
+                    if (err.type === 'peer-unavailable') {
+                        setStatus('房间不存在或房主已离线', true);
+                    } else if (err.type === 'network' || err.type === 'server-error') {
+                        setStatus('信令服务器连接失败，请检查网络', true);
+                    } else if (err.type === 'browser-incompatible') {
+                        setStatus('浏览器不支持 WebRTC，请用 Chrome/Safari', true);
+                    } else {
+                        setStatus('连接失败: ' + err.message, true);
+                    }
+                    cleanupPeer();
+                });
+
+                peer.on('disconnected', () => {
+                    if (!peer.destroyed && (!conn || !conn.open)) {
+                        try { peer.reconnect(); } catch (e) {}
+                    }
+                });
+
+            } catch (e) {
+                clearJoinTimeout();
+                setStatus('加入失败: ' + e.message, true);
+                joinBtn.disabled = false;
+                createBtn.disabled = false;
+            }
         });
 
         function enterGame() {
@@ -1630,16 +1734,26 @@
 
         function setupConnection(connection, isJoiner) {
             conn = connection;
+
             conn.on('open', () => {
+                clearJoinTimeout();
                 setStatus('已连接！游戏开始！');
                 conn.send({ type: 'join', username: GameState.username, peerId: localPeerId });
                 if (isJoiner) addLocalPlayer(GameState.username);
                 else if (!GameState.mobileMode) renderer.domElement.click();
             });
+
             conn.on('data', handleNetworkMessage);
+
+            conn.on('error', (err) => {
+                console.error('连接错误:', err);
+                setStatus('连接错误：' + err.message, true);
+            });
+
             conn.on('close', () => {
-                if (!isHost) quitToMainMenu('房主已关闭房间');
-                else {
+                if (!isHost) {
+                    quitToMainMenu('房主已关闭房间');
+                } else {
                     for (const pid in players) {
                         if (pid !== localPeerId) {
                             const p = players[pid];
@@ -1691,7 +1805,6 @@
             players[peerId].mesh.position.copy(players[peerId].position);
         }
 
-        // 死亡 / 观战 / 重生
         function triggerDeath() {
             if (GameState.isDead) return;
             GameState.isDead = true;
@@ -1782,7 +1895,6 @@
             reloadProgress.classList.remove('active'); reloadBar.style.width = '0%';
             stanceIndicator.classList.remove('active');
             deathOverlay.classList.remove('show');
-            // 重置 HUD 缓存
             _hudCache.score = -1; _hudCache.hp = -1; _hudCache.hpPercent = -1;
             _hudCache.ammo = -1; _hudCache.reloadActive = false; _hudCache.cooldown = -1;
             switchWeapon(1);
@@ -1812,7 +1924,6 @@
             fpsBomb.group.visible = (slot === 3);
             fpsSniper.group.scale.set(0.8, 0.8, 0.8);
 
-            // 重置弹药缓存
             _hudCache.ammo = -1;
             _hudCache.cooldown = -1;
             _hudCache.weapon = '';
@@ -1821,7 +1932,6 @@
             if (conn && conn.open) conn.send({ type: 'switch', peerId: localPeerId, slot });
         }
 
-        // 优化: 物品栏只更新变化的部分
         const _hotbarCache = { activeSlot: -1, bombCooldownSec: -1 };
 
         function updateHotbarUI() {
@@ -1834,7 +1944,6 @@
                 });
                 gunIcon.textContent = WEAPONS[GameState.currentSlot].icon;
             }
-            // 炸弹冷却
             const cd = document.querySelector('.hotbar-slot[data-slot="3"] .slot-cooldown');
             if (cd) {
                 const remain = GameState.bombCooldownEnd - performance.now();
@@ -1851,7 +1960,6 @@
             }
         }
 
-        // 物品栏点击切换
         document.querySelectorAll('.hotbar-slot').forEach(slotEl => {
             slotEl.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -2004,6 +2112,9 @@
         }
 
         function quitToMainMenu(reason) {
+            clearJoinTimeout();
+            cleanupPeer();
+
             for (const pid in players) {
                 if (players[pid].mesh) scene.remove(players[pid].mesh);
                 delete players[pid];
@@ -2016,13 +2127,13 @@
             explosions.length = 0;
             destroyAllHouses();
             houseLayoutData = null; hasHousesData = false;
-            if (conn) { try { conn.close(); } catch (e) {} conn = null; }
-            if (peer) { try { peer.destroy(); } catch (e) {} peer = null; }
+
             if (GameState._respawnTimer) { clearTimeout(GameState._respawnTimer); GameState._respawnTimer = null; }
             if (GameState._countdownInterval) { clearInterval(GameState._countdownInterval); GameState._countdownInterval = null; }
 
             GameState.isDead = false; GameState.paused = false; GameState.isHost = false; isHost = false;
             GameState.spectating = false;
+
             deathOverlay.classList.remove('show'); pauseOverlay.classList.remove('show');
             spectateHud.classList.remove('show');
             hudTop.style.display = 'none';
@@ -2145,7 +2256,6 @@
             camera.position.z = Math.max(-HALF_MAP, Math.min(HALF_MAP, camera.position.z));
         }
 
-        // 本地玩家
         function updateLocalPlayer(delta) {
             const local = players[localPeerId];
             if (!local || local.isDead) {
@@ -2174,7 +2284,6 @@
             const targetBlend = GameState.isSprinting ? 1 : 0;
             GameState.sprintBlend += (targetBlend - GameState.sprintBlend) * Math.min(delta * 10, 1);
 
-            // 移动
             const camQ = camera.quaternion;
             _tmpV1.set(0, 0, -1).applyQuaternion(camQ);
             _tmpV1.y = 0; _tmpV1.normalize();
@@ -2209,7 +2318,6 @@
                 }
             }
 
-            // 梯子 / 跳跃
             if (onLadderNow && !GameState.isProne) {
                 if (GameState.keys.w || GameState.keys.space) GameState.verticalVelocity = 4;
                 else if (GameState.keys.s) GameState.verticalVelocity = -4;
@@ -2254,7 +2362,6 @@
 
             updateWalkAnimation(local, isMoving, delta, GameState.isSprinting);
 
-            // 网络同步 (优化: 降低频率)
             if (conn && conn.open && (GameState.frame % SYNC_INTERVAL === 0)) {
                 conn.send({
                     type: 'move',
@@ -2265,7 +2372,6 @@
                 });
             }
 
-            // 远程玩家走路动画 (距离裁剪)
             for (const pid in players) {
                 if (pid === localPeerId) continue;
                 const rp = players[pid];
@@ -2429,7 +2535,6 @@
             camera.position.x += camShakeX;
             camera.position.y += camShakeY;
 
-            // 血量恢复
             const now = performance.now();
             const canRegen = local.hp < 75 && !GameState.isSprinting && !GameState.mouseDown && !GameState.isReloading &&
                 (now - GameState.lastDamageTime > 5000) && (now - GameState.lastFireTime > 5000) && now >= GameState.nextRegenTime;
@@ -2448,7 +2553,7 @@
         }
 
         // ================================================================
-        //  主循环 (性能优化: 帧率自适应、标签节流、渲染节流)
+        //  主循环
         // ================================================================
         let frame = 0;
         let lastTime = performance.now();
@@ -2462,7 +2567,6 @@
             frame++;
             GameState.frame = frame;
 
-            // FPS 统计
             fpsFrames++;
             fpsTimer += delta;
             if (fpsTimer >= 1) {
@@ -2486,7 +2590,6 @@
                 updateExplosions(delta);
                 updateInvulnerabilityEffects();
 
-                // 标签可见性 - 只在特定帧检测 (节流)
                 if (frame % LABEL_CHECK_INTERVAL === 0) {
                     const camPos = camera.position;
                     for (const pid in players) {
@@ -2519,7 +2622,6 @@
             labelRenderer.render(scene, camera);
         }
 
-        // 模式切换
         function setMobileMode(enabled) {
             GameState.mobileMode = enabled;
             pcModeBtn.classList.toggle('active', !enabled);
@@ -2530,7 +2632,6 @@
         pcModeBtn.addEventListener('click', () => setMobileMode(false));
         mobileModeBtn.addEventListener('click', () => setMobileMode(true));
 
-        // 手机摇杆
         const joystick = { active: false, id: null, centerX: 0, centerY: 0, maxDist: 50 };
 
         function resetJoystickKnob() {
@@ -2595,7 +2696,6 @@
             GameState.keys.s = dy > deadzone && absY > absX * threshold;
         }
 
-        // 手机按钮
         const mobSprint = document.getElementById('mobSprint');
         const mobADS = document.getElementById('mobADS');
         const mobProne = document.getElementById('mobProne');
@@ -2658,7 +2758,6 @@
             setTimeout(() => { GameState.keys.r = false; }, 100);
         }, { passive: false });
 
-        // 手机屏幕拖动视角
         const touchLook = { active: false, id: null, lastX: 0, lastY: 0 };
         renderer.domElement.addEventListener('touchstart', (e) => {
             if (!GameState.mobileMode || GameState.paused || GameState.isDead) return;
@@ -2698,7 +2797,6 @@
             }
         });
 
-        // 桌面输入
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
@@ -2780,7 +2878,6 @@
             if (!GameState.isLocked && !GameState.paused && !GameState.isDead && uiOverlay.classList.contains('hidden') && !chatInputActive && !GameState.spectating) pauseGame();
         });
 
-        // 鼠标移动 - 用 requestAnimationFrame 节流
         let pendingMouseX = 0, pendingMouseY = 0, hasPendingMouse = false;
         document.addEventListener('mousemove', (e) => {
             if (GameState.mobileMode) return;
@@ -2790,7 +2887,6 @@
             hasPendingMouse = true;
         });
 
-        // 在 animate 之前处理累积的鼠标移动
         function applyMouseDelta() {
             if (!hasPendingMouse) return;
             hasPendingMouse = false;
@@ -2803,7 +2899,6 @@
             pendingMouseY = 0;
         }
 
-        // 用 setInterval 处理鼠标移动 (比每帧处理更平滑，也降低 CPU)
         setInterval(applyMouseDelta, 1000 / 60);
 
         document.addEventListener('mousedown', (e) => {
@@ -2850,8 +2945,8 @@
             }
         });
 
-        console.log('🎮 巴迪老师枪战 v8 (性能优化版)');
-        console.log('按 P 显示/隐藏性能监控');
+        console.log('🎮 巴迪老师枪战 v9 (网络修复版)');
+        console.log('已配置 STUN 服务器 · 有超时保护 · 按 P 显示性能监控');
     </script>
 </body>
 </html>
